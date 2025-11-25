@@ -10,6 +10,7 @@ use core::fmt::Debug;
 
 use crate::backend::Backend;
 use crate::types::{Aabb2D, Scalar, area, union_aabb};
+use crate::util::isqrt_ceil;
 
 /// R-tree backend using SAH-like splits and widened accumulator metrics.
 pub struct RTree<T: Scalar, P: Copy + Debug> {
@@ -108,10 +109,14 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
         // Build leaf level (as node indices in the arena)
         let n = items.len();
         let num_leaves = Self::ceil_div(n, max_children);
-        let mut gx = 1_usize;
-        while gx * gx < num_leaves {
-            gx += 1;
-        }
+        // Following STR, the space is first "tiled" along one dimension using
+        // ceil(sqrt(n/max_children)) slices such that each slice contains enough AABBs to pack
+        // roughly sqrt(n/max_children) nodes.
+        let gx = isqrt_ceil(num_leaves);
+        debug_assert!(
+            gx >= 1,
+            "there should always be at least one slice as we return early for empty `items`"
+        );
         items.sort_by(|a, b| {
             Self::centroid_x_of_aabb(&a.1)
                 .partial_cmp(&Self::centroid_x_of_aabb(&b.1))
@@ -150,10 +155,8 @@ impl<T: Scalar, P: Copy + Debug> RTree<T, P> {
         while level.len() > max_children {
             let n_nodes = level.len();
             let num_parents = Self::ceil_div(n_nodes, max_children);
-            let mut gx = 1_usize;
-            while gx * gx < num_parents {
-                gx += 1;
-            }
+            let gx = isqrt_ceil(num_parents);
+            debug_assert!(gx >= 1, "there should always be at least one slice left");
             level.sort_by(|&a, &b| {
                 Self::centroid_x_of_aabb(&arena[a].bbox)
                     .partial_cmp(&Self::centroid_x_of_aabb(&arena[b].bbox))
@@ -792,5 +795,32 @@ mod tests {
         // Neighbor still present.
         let v_neighbor: Vec<_> = b.query_point(15, 5).collect();
         assert_eq!(v_neighbor, vec![1]);
+    }
+
+    #[test]
+    fn rtree_i64_bulk_build() {
+        let idx = Index::<i64, u32>::with_rtree_bulk(&[
+            (Aabb2D::new(0, 0, 10, 10), 1),
+            (Aabb2D::new(5, 5, 15, 15), 2),
+        ]);
+        let hits: Vec<_> = idx.query_point(6, 6).collect();
+        assert_eq!(hits.len(), 2);
+        let payloads: Vec<_> = hits.into_iter().map(|(_, p)| p).collect();
+        assert!(payloads.contains(&1) && payloads.contains(&2));
+        let q: Vec<_> = idx.query_rect(Aabb2D::new(12, 12, 20, 20)).collect();
+        assert_eq!(q.len(), 1);
+
+        // The above should yield the same hits as when we "builk build" an empty index, then add
+        // the two AABBs one-by-one.
+        let mut idx = Index::<i64, u32>::with_rtree_bulk(&[]);
+        let _k1 = idx.insert(Aabb2D::new(0, 0, 10, 10), 1);
+        let _k2 = idx.insert(Aabb2D::new(5, 5, 15, 15), 2);
+        let _ = idx.commit();
+        let hits: Vec<_> = idx.query_point(6, 6).collect();
+        assert_eq!(hits.len(), 2);
+        let payloads: Vec<_> = hits.into_iter().map(|(_, p)| p).collect();
+        assert!(payloads.contains(&1) && payloads.contains(&2));
+        let q: Vec<_> = idx.query_rect(Aabb2D::new(12, 12, 20, 20)).collect();
+        assert_eq!(q.len(), 1);
     }
 }
