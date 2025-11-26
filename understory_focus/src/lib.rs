@@ -383,10 +383,10 @@ fn compare_linear<K>(a: &FocusEntry<K>, b: &FocusEntry<K>) -> Ordering {
 }
 
 fn compare_rect_reading(a: &Rect, b: &Rect) -> Ordering {
-    const EPS: f64 = 1e-6;
+    const RELATIVE_EPS: f64 = 1e-6;
     let ay = a.y0;
     let by = b.y0;
-    if (ay - by).abs() > EPS {
+    if (ay - by).abs() > f64::max(ay.abs(), by.abs()) * RELATIVE_EPS {
         return ay.partial_cmp(&by).unwrap_or(Ordering::Equal);
     }
     let ax = a.x0;

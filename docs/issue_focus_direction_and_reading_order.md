@@ -31,7 +31,7 @@ In `DefaultPolicy`:
   1. If both entries have `order: Some(i32)`, compare by `order` (lower first).
   2. Otherwise fall back to **reading order** defined as:
      - Compare by `rect.y0` (ascending).
-     - If `y0` is within a small epsilon, compare by `rect.x0` (ascending).
+     - If `y0` is within a small relative epsilon, compare by `rect.x0` (ascending).
 - Traversal:
   - `Next`: move forward in this sorted list.
   - `Prev`: move backward in this sorted list.
